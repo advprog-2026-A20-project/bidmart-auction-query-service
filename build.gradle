@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.11'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'id.ac.ui.cs.advprog'
+version = '0.0.1-SNAPSHOT'
+description = 'auction-query-service'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+if (project != rootProject) {
+    repositories {
+        mavenCentral()
+    }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    implementation 'org.hibernate.orm:hibernate-core'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'com.h2database:h2'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'com.h2database:h2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('bootRunLocal', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = 'Run the auction query service with the local H2 development profile.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'id.ac.ui.cs.advprog.auctionquery.AuctionQueryServiceApplication'
+
+    systemProperty 'spring.profiles.active', 'local'
+    systemProperty 'spring.datasource.url', 'jdbc:h2:mem:auctionquery;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE'
+    systemProperty 'spring.datasource.driver-class-name', 'org.h2.Driver'
+    systemProperty 'spring.datasource.username', 'sa'
+    systemProperty 'spring.datasource.password', ''
+}
