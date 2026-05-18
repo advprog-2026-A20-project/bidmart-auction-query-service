@@ -56,7 +56,7 @@ tasks.register('bootRunLocal', org.springframework.boot.gradle.tasks.run.BootRun
     mainClass = 'id.ac.ui.cs.advprog.auctionquery.AuctionQueryServiceApplication'
 
     systemProperty 'spring.profiles.active', 'local'
-    systemProperty 'spring.datasource.url', 'jdbc:h2:mem:auctionquery;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE'
+    systemProperty 'spring.datasource.url', 'jdbc:h2:mem:auction_query;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE'
     systemProperty 'spring.datasource.driver-class-name', 'org.h2.Driver'
     systemProperty 'spring.datasource.username', 'sa'
     systemProperty 'spring.datasource.password', ''
