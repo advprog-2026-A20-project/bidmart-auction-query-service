@@ -3,6 +3,7 @@ package id.ac.ui.cs.advprog.auctionquery;
 import id.ac.ui.cs.advprog.auctionquery.model.Auction;
 import id.ac.ui.cs.advprog.auctionquery.model.AuctionStatus;
 import id.ac.ui.cs.advprog.auctionquery.model.Bid;
+import id.ac.ui.cs.advprog.auctionquery.model.BidStatus;
 import id.ac.ui.cs.advprog.auctionquery.model.Listing;
 import id.ac.ui.cs.advprog.auctionquery.model.User;
 import id.ac.ui.cs.advprog.auctionquery.repository.AuctionRepository;
@@ -109,16 +110,13 @@ class AuctionQueryIntegrationTest {
 
     private Auction persistAuction(Listing listing, AuctionStatus status, Instant endsAt) {
         Auction auction = new Auction();
+        auction.setSellerId(listing.getSeller().getId());
+        auction.setListingId(listing.getId());
         auction.setListing(listing);
         auction.setStatus(status);
         auction.setStartingPrice(listing.getPrice());
-        auction.setReservePrice(listing.getPrice());
-        auction.setMinimumBidIncrement(new BigDecimal("10.00"));
-        auction.setDurationMinutes(60L);
-        auction.setNextBidSequence(1L);
-        auction.setExtensionCount(0);
         auction.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.SECONDS));
-        auction.setStartsAt(auction.getCreatedAt());
+        auction.setUpdatedAt(auction.getCreatedAt());
         auction.setEndsAt(endsAt);
         entityManager.persist(auction);
         return auction;
@@ -126,11 +124,13 @@ class AuctionQueryIntegrationTest {
 
     private Bid persistBid(Auction auction, User bidder, String amount, long sequenceNumber) {
         Bid bid = new Bid();
+        bid.setAuctionId(auction.getId());
         bid.setAuction(auction);
+        bid.setBidderId(bidder.getId());
         bid.setBidder(bidder);
         bid.setAmount(new BigDecimal(amount));
-        bid.setSequenceNumber(sequenceNumber);
-        bid.setSubmittedAt(Instant.now());
+        bid.setStatus(BidStatus.WINNING);
+        bid.setCreatedAt(Instant.now().plus(sequenceNumber, ChronoUnit.SECONDS));
         entityManager.persist(bid);
         entityManager.flush();
         return bid;

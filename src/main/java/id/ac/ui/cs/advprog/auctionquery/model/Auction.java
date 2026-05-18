@@ -28,8 +28,14 @@ public class Auction {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "seller_id", nullable = false)
+    private UUID sellerId;
+
+    @Column(name = "listing_id", nullable = false, unique = true)
+    private UUID listingId;
+
     @OneToOne(optional = false)
-    @JoinColumn(name = "listing_id", nullable = false, unique = true)
+    @JoinColumn(name = "listing_id", nullable = false, unique = true, insertable = false, updatable = false)
     private Listing listing;
 
     @Enumerated(EnumType.STRING)
@@ -39,33 +45,18 @@ public class Auction {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal startingPrice;
 
-    @Column(nullable = false, precision = 19, scale = 2)
-    private BigDecimal reservePrice;
+    @Column(name = "current_highest_bid", precision = 19, scale = 2)
+    private BigDecimal currentHighestBid;
 
-    @Column(nullable = false, precision = 19, scale = 2)
-    private BigDecimal minimumBidIncrement;
-
-    @Column(nullable = false)
-    private Long durationMinutes;
-
-    @Column(nullable = false)
-    private Long nextBidSequence;
-
-    @Column(nullable = false)
-    private Integer extensionCount;
+    @Column(name = "current_highest_bidder_id")
+    private UUID currentHighestBidderId;
 
     @Column(nullable = false)
     private Instant createdAt;
 
-    @Column
-    private Instant activatedAt;
-
-    @Column
-    private Instant startsAt;
+    @Column(nullable = false)
+    private Instant updatedAt;
 
     @Column
     private Instant endsAt;
-
-    @Column
-    private Instant closedAt;
 }
