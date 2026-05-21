@@ -87,7 +87,26 @@ class AuctionQueryIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$[0].id").value(bid.getId().toString()))
-            .andExpect(jsonPath("$[0].winning").value(true));
+            .andExpect(jsonPath("$[0].winning").value(false));
+    }
+
+    @Test
+    void defaultListShouldHideClosedAuctionsButAllowClosedFilter() throws Exception {
+        User seller = persistUser("seller-closed@example.com");
+        Listing listing = persistListing(seller, "Closed Phone", "Recently closed", "1200.00");
+        Auction auction = persistAuction(listing, AuctionStatus.CLOSED, Instant.now().minus(1, ChronoUnit.MINUTES));
+        auction.setClosedAt(Instant.now());
+        entityManager.flush();
+
+        mockMvc.perform(get("/api/auctions"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+
+        mockMvc.perform(get("/api/auctions").param("status", "CLOSED"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].id").value(auction.getId().toString()))
+            .andExpect(jsonPath("$[0].status").value("CLOSED"));
     }
 
     private User persistUser(String email) {

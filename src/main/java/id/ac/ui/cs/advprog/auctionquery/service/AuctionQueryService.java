@@ -9,8 +9,6 @@ import id.ac.ui.cs.advprog.auctionquery.model.Bid;
 import id.ac.ui.cs.advprog.auctionquery.repository.AuctionRepository;
 import id.ac.ui.cs.advprog.auctionquery.repository.BidRepository;
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -29,21 +27,19 @@ public class AuctionQueryService {
 
     private final AuctionRepository auctionRepository;
     private final BidRepository bidRepository;
-    private final Clock clock;
 
     public AuctionQueryService(
         AuctionRepository auctionRepository,
-        BidRepository bidRepository,
-        Clock clock
+        BidRepository bidRepository
     ) {
         this.auctionRepository = auctionRepository;
         this.bidRepository = bidRepository;
-        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
-    public List<AuctionSummaryResponse> listAuctions() {
+    public List<AuctionSummaryResponse> listAuctions(AuctionStatus status) {
         return auctionRepository.findAllWithListingAndSellerOrderByCreatedAtDesc().stream()
+            .filter(auction -> matchesStatusFilter(auction, status))
             .map(this::toSummaryResponse)
             .toList();
     }
@@ -60,10 +56,9 @@ public class AuctionQueryService {
         Auction auction = auctionRepository.findByIdWithListingAndSeller(auctionId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found"));
         List<Bid> bids = bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId());
-        AuctionStatus effectiveStatus = resolveEffectiveStatus(auction, selectLeadingBid(bids));
         Bid leadingBid = selectLeadingBid(bids);
         return bids.stream()
-            .map(bid -> toBidResponse(effectiveStatus, bid, leadingBid))
+            .map(bid -> toBidResponse(auction.getStatus(), bid, leadingBid))
             .toList();
     }
 
@@ -71,7 +66,6 @@ public class AuctionQueryService {
         Bid leadingBid = bidRepository.findTopByAuctionIdOrderByAmountDescSequenceNumberAsc(auction.getId())
             .orElse(null);
         long totalBids = bidRepository.countByAuctionId(auction.getId());
-        AuctionStatus effectiveStatus = resolveEffectiveStatus(auction, leadingBid);
         BigDecimal currentPrice = leadingBid == null ? auction.getListing().getPrice() : leadingBid.getAmount();
         return new AuctionSummaryResponse(
             auction.getId(),
@@ -83,7 +77,7 @@ public class AuctionQueryService {
             currentPrice,
             auction.getStartingPrice(),
             auction.getMinimumBidIncrement(),
-            effectiveStatus,
+            auction.getStatus(),
             auction.getCreatedAt(),
             auction.getStartsAt(),
             auction.getEndsAt(),
@@ -96,9 +90,8 @@ public class AuctionQueryService {
     private AuctionDetailResponse toDetailResponse(Auction auction) {
         List<Bid> bids = bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId());
         Bid leadingBid = selectLeadingBid(bids);
-        AuctionStatus effectiveStatus = resolveEffectiveStatus(auction, leadingBid);
         boolean reserveMet = leadingBid != null && leadingBid.getAmount().compareTo(auction.getReservePrice()) >= 0;
-        Bid winningBid = effectiveStatus == AuctionStatus.WON ? leadingBid : null;
+        Bid winningBid = auction.getStatus() == AuctionStatus.WON ? leadingBid : null;
         BigDecimal currentPrice = leadingBid == null ? auction.getListing().getPrice() : leadingBid.getAmount();
         return new AuctionDetailResponse(
             auction.getId(),
@@ -111,47 +104,30 @@ public class AuctionQueryService {
             auction.getStartingPrice(),
             auction.getReservePrice(),
             auction.getMinimumBidIncrement(),
-            effectiveStatus,
+            auction.getStatus(),
             auction.getCreatedAt(),
             auction.getStartsAt(),
             auction.getEndsAt(),
-            resolveEffectiveClosedAt(auction, effectiveStatus),
+            auction.getClosedAt(),
             auction.getDurationMinutes(),
             auction.getExtensionCount(),
             bids.size(),
             calculateNextMinimumBid(auction, leadingBid),
             reserveMet,
-            isBiddableStatus(effectiveStatus),
-            leadingBid == null ? null : toBidResponse(effectiveStatus, leadingBid, leadingBid),
-            winningBid == null ? null : toBidResponse(effectiveStatus, winningBid, leadingBid),
+            isBiddableStatus(auction.getStatus()),
+            leadingBid == null ? null : toBidResponse(auction.getStatus(), leadingBid, leadingBid),
+            winningBid == null ? null : toBidResponse(auction.getStatus(), winningBid, leadingBid),
             bids.stream()
-                .map(bid -> toBidResponse(effectiveStatus, bid, leadingBid))
+                .map(bid -> toBidResponse(auction.getStatus(), bid, leadingBid))
                 .toList()
         );
     }
 
-    private AuctionStatus resolveEffectiveStatus(Auction auction, Bid leadingBid) {
-        if (!shouldDeriveResolvedStatus(auction)) {
-            return auction.getStatus();
+    private boolean matchesStatusFilter(Auction auction, AuctionStatus requestedStatus) {
+        if (requestedStatus == null) {
+            return auction.getStatus() != AuctionStatus.CLOSED;
         }
-        return isReserveMet(auction, leadingBid) ? AuctionStatus.WON : AuctionStatus.UNSOLD;
-    }
-
-    private Instant resolveEffectiveClosedAt(Auction auction, AuctionStatus effectiveStatus) {
-        if (effectiveStatus == auction.getStatus()) {
-            return auction.getClosedAt();
-        }
-        return auction.getEndsAt();
-    }
-
-    private boolean shouldDeriveResolvedStatus(Auction auction) {
-        return isBiddableStatus(auction.getStatus())
-            && auction.getEndsAt() != null
-            && !auction.getEndsAt().isAfter(Instant.now(clock));
-    }
-
-    private boolean isReserveMet(Auction auction, Bid leadingBid) {
-        return leadingBid != null && leadingBid.getAmount().compareTo(auction.getReservePrice()) >= 0;
+        return auction.getStatus() == requestedStatus;
     }
 
     private boolean isBiddableStatus(AuctionStatus status) {
@@ -168,7 +144,7 @@ public class AuctionQueryService {
     private BidResponse toBidResponse(AuctionStatus effectiveStatus, Bid bid, Bid leadingBid) {
         boolean isWinningBid = leadingBid != null
             && Objects.equals(leadingBid.getId(), bid.getId())
-            && effectiveStatus != AuctionStatus.UNSOLD;
+            && effectiveStatus == AuctionStatus.WON;
         return new BidResponse(
             bid.getId(),
             bid.getBidder().getId(),

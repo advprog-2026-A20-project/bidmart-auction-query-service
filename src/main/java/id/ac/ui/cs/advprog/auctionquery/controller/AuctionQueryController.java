@@ -3,12 +3,14 @@ package id.ac.ui.cs.advprog.auctionquery.controller;
 import id.ac.ui.cs.advprog.auctionquery.dto.AuctionDetailResponse;
 import id.ac.ui.cs.advprog.auctionquery.dto.AuctionSummaryResponse;
 import id.ac.ui.cs.advprog.auctionquery.dto.BidResponse;
+import id.ac.ui.cs.advprog.auctionquery.model.AuctionStatus;
 import id.ac.ui.cs.advprog.auctionquery.service.AuctionQueryService;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -22,8 +24,8 @@ public class AuctionQueryController {
     }
 
     @GetMapping
-    public List<AuctionSummaryResponse> listAuctions() {
-        return auctionQueryService.listAuctions();
+    public List<AuctionSummaryResponse> listAuctions(@RequestParam(required = false) AuctionStatus status) {
+        return auctionQueryService.listAuctions(status);
     }
 
     @GetMapping("/{auctionId}")
