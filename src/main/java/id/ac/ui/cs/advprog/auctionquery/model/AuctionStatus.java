@@ -6,5 +6,6 @@ public enum AuctionStatus {
     EXTENDED,
     CLOSED,
     WON,
-    UNSOLD
+    UNSOLD,
+    CANCELLED
 }

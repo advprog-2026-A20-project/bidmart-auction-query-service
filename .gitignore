@@ -1,8 +1,12 @@
 .gradle/
 build/
+target/
 out/
+bin/
 
 .env
+.env.*
+!.env.example
 *.log
 
 .idea/

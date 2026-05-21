@@ -74,5 +74,4 @@ Belum termasuk:
 bidding-command-service
 wallet-service
 auth-service
-notification-service
 ```
