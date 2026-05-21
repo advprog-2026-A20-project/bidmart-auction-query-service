@@ -125,7 +125,7 @@ public class AuctionQueryService {
 
     private boolean matchesStatusFilter(Auction auction, AuctionStatus requestedStatus) {
         if (requestedStatus == null) {
-            return auction.getStatus() != AuctionStatus.CLOSED;
+            return true;
         }
         return auction.getStatus() == requestedStatus;
     }

@@ -91,7 +91,7 @@ class AuctionQueryIntegrationTest {
     }
 
     @Test
-    void defaultListShouldHideClosedAuctionsButAllowClosedFilter() throws Exception {
+    void defaultListShouldReturnAllAuctionsAndAllowClosedFilter() throws Exception {
         User seller = persistUser("seller-closed@example.com");
         Listing listing = persistListing(seller, "Closed Phone", "Recently closed", "1200.00");
         Auction auction = persistAuction(listing, AuctionStatus.CLOSED, Instant.now().minus(1, ChronoUnit.MINUTES));
@@ -100,7 +100,8 @@ class AuctionQueryIntegrationTest {
 
         mockMvc.perform(get("/api/auctions"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.length()").value(0));
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].status").value("CLOSED"));
 
         mockMvc.perform(get("/api/auctions").param("status", "CLOSED"))
             .andExpect(status().isOk())
