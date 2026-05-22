@@ -1,15 +1,17 @@
-# Bidmart Auction Query Service
+# BidMart Auction Query Service
 
-Read-only service untuk auction query di Bidmart.
+Service read-only untuk query auction di BidMart. Service ini diekstrak dari gateway/monolith lama sebagai read-side pertama dalam migrasi strangler.
 
-## Responsibilities
+## Tanggung Jawab
 
-- Read auction list
-- Read auction detail
-- Read bid history
-- Expose health check
+- Membaca daftar auction.
+- Membaca detail auction.
+- Membaca bid history.
+- Mengekspos health check.
 
-## Endpoints
+Service ini bersifat read-only. Auction lifecycle, place bid, wallet settlement, dan event command-side tetap menjadi tanggung jawab bidding command service atau gateway legacy selama fase strangler.
+
+## Endpoint
 
 ```txt
 GET /api/auctions
@@ -18,9 +20,17 @@ GET /api/auctions/{auctionId}/bids
 GET /actuator/health
 ```
 
-## Local development
+`GET /api/auctions` mendukung query parameter opsional:
 
-Run test:
+```txt
+status
+page (default 0)
+size (default 20, max 100)
+```
+
+## Run Lokal
+
+Jalankan test:
 
 ```bash
 ./gradlew test
@@ -38,13 +48,13 @@ Build Docker image:
 docker build -t bidmart-auction-query-service .
 ```
 
-Run Docker container:
+Run container:
 
 ```bash
 docker run --env-file .env -p 8081:8081 bidmart-auction-query-service
 ```
 
-## Environment variables
+## Environment Variable
 
 ```txt
 PORT
@@ -54,22 +64,22 @@ SPRING_DATASOURCE_USERNAME
 SPRING_DATASOURCE_PASSWORD
 ```
 
-## Migration status
+## Service Boundary
 
-This service is extracted from the legacy Bidmart gateway/monolith as the first read-side microservice.
+Dokumentasi boundary ada di `docs/service-boundary.md`.
 
-Current phase:
+## Status Migrasi
+
+Fase saat ini:
 
 ```txt
 gateway + auction-query-service
 ```
 
-Not included yet:
+Belum termasuk:
 
 ```txt
-auction-command-service
+bidding-command-service
 wallet-service
 auth-service
-bid-service
-notification-service
 ```
