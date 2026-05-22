@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - feature/auction-query-read-model
+      - fix/auction-query
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
