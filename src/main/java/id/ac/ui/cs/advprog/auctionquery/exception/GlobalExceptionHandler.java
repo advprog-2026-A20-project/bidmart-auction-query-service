@@ -1,12 +1,15 @@
 package id.ac.ui.cs.advprog.auctionquery.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -29,6 +32,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({
+        ConstraintViolationException.class,
+        HandlerMethodValidationException.class,
         MethodArgumentTypeMismatchException.class,
         MethodArgumentNotValidException.class,
         IllegalArgumentException.class
@@ -42,9 +47,34 @@ public class GlobalExceptionHandler {
             Instant.now(),
             status.value(),
             status.getReasonPhrase(),
-            exception.getMessage(),
+            resolveBadRequestMessage(exception),
             request.getRequestURI()
         ));
+    }
+
+    private String resolveBadRequestMessage(Exception exception) {
+        if (exception instanceof ConstraintViolationException constraintViolationException) {
+            return constraintViolationException.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> violation.getMessage())
+                .orElse("Request validation failed");
+        }
+
+        if (exception instanceof HandlerMethodValidationException handlerMethodValidationException) {
+            return handlerMethodValidationException.getAllErrors().stream()
+                .findFirst()
+                .map(error -> error.getDefaultMessage())
+                .orElse("Request validation failed");
+        }
+
+        if (exception instanceof MethodArgumentNotValidException methodArgumentNotValidException) {
+            return methodArgumentNotValidException.getBindingResult().getAllErrors().stream()
+                .findFirst()
+                .map(ObjectError::getDefaultMessage)
+                .orElse("Request validation failed");
+        }
+
+        return exception.getMessage();
     }
 
     @ExceptionHandler(Exception.class)

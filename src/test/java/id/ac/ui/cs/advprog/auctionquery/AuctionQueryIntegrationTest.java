@@ -1,5 +1,9 @@
 package id.ac.ui.cs.advprog.auctionquery;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import id.ac.ui.cs.advprog.auctionquery.model.Auction;
 import id.ac.ui.cs.advprog.auctionquery.model.AuctionStatus;
 import id.ac.ui.cs.advprog.auctionquery.model.Bid;
@@ -19,10 +23,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
     "spring.datasource.url=jdbc:h2:mem:auctionquerytest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
@@ -64,11 +64,11 @@ class AuctionQueryIntegrationTest {
     }
 
     @Test
-    void readEndpointsShouldReturnAuctionSummariesAndDetails() throws Exception {
+    void readEndpointsShouldReturnAuctionSummariesDetailsAndMaskedBidHistory() throws Exception {
         User seller = persistUser("seller@example.com");
         User buyer = persistUser("buyer@example.com");
         Listing listing = persistListing(seller, "Gaming Phone", "Competitive smartphone", "1200.00");
-        Auction auction = persistAuction(listing, AuctionStatus.ACTIVE, Instant.now().plus(2, ChronoUnit.HOURS));
+        Auction auction = persistAuction(listing, AuctionStatus.ACTIVE, baseInstant().plus(2, ChronoUnit.HOURS), baseInstant());
         Bid bid = persistBid(auction, buyer, "1250.00", 1L);
 
         mockMvc.perform(get("/api/auctions"))
@@ -81,33 +81,59 @@ class AuctionQueryIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value(auction.getId().toString()))
             .andExpect(jsonPath("$.leadingBid.id").value(bid.getId().toString()))
+            .andExpect(jsonPath("$.leadingBid.bidderEmail").value("b***r@example.com"))
             .andExpect(jsonPath("$.bidHistory.length()").value(1));
 
         mockMvc.perform(get("/api/auctions/{auctionId}/bids", auction.getId()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$[0].id").value(bid.getId().toString()))
+            .andExpect(jsonPath("$[0].bidderEmail").value("b***r@example.com"))
             .andExpect(jsonPath("$[0].winning").value(false));
     }
 
     @Test
-    void defaultListShouldReturnAllAuctionsAndAllowClosedFilter() throws Exception {
+    void listEndpointShouldApplyPaginationAndStatusFilter() throws Exception {
         User seller = persistUser("seller-closed@example.com");
-        Listing listing = persistListing(seller, "Closed Phone", "Recently closed", "1200.00");
-        Auction auction = persistAuction(listing, AuctionStatus.CLOSED, Instant.now().minus(1, ChronoUnit.MINUTES));
-        auction.setClosedAt(Instant.now());
+        Listing newestListing = persistListing(seller, "Newest Auction", "Newest", "1500.00");
+        Listing olderListing = persistListing(seller, "Older Auction", "Older", "1200.00");
+        Auction closedAuction = persistAuction(
+            newestListing,
+            AuctionStatus.CLOSED,
+            baseInstant().minus(1, ChronoUnit.MINUTES),
+            baseInstant().plus(5, ChronoUnit.MINUTES)
+        );
+        closedAuction.setClosedAt(baseInstant().plus(6, ChronoUnit.MINUTES));
+        persistAuction(
+            olderListing,
+            AuctionStatus.ACTIVE,
+            baseInstant().plus(2, ChronoUnit.HOURS),
+            baseInstant()
+        );
         entityManager.flush();
 
-        mockMvc.perform(get("/api/auctions"))
+        mockMvc.perform(get("/api/auctions")
+                .param("page", "0")
+                .param("size", "1"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].status").value("CLOSED"));
+            .andExpect(jsonPath("$[0].id").value(closedAuction.getId().toString()));
 
-        mockMvc.perform(get("/api/auctions").param("status", "CLOSED"))
+        mockMvc.perform(get("/api/auctions")
+                .param("status", "CLOSED")
+                .param("page", "0")
+                .param("size", "10"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].id").value(auction.getId().toString()))
+            .andExpect(jsonPath("$[0].id").value(closedAuction.getId().toString()))
             .andExpect(jsonPath("$[0].status").value("CLOSED"));
+    }
+
+    @Test
+    void listEndpointShouldRejectPageSizeAboveMaximum() throws Exception {
+        mockMvc.perform(get("/api/auctions").param("size", "101"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("must be less than or equal to 100"));
     }
 
     private User persistUser(String email) {
@@ -127,7 +153,7 @@ class AuctionQueryIntegrationTest {
         return listing;
     }
 
-    private Auction persistAuction(Listing listing, AuctionStatus status, Instant endsAt) {
+    private Auction persistAuction(Listing listing, AuctionStatus status, Instant endsAt, Instant createdAt) {
         Auction auction = new Auction();
         auction.setListing(listing);
         auction.setStatus(status);
@@ -137,7 +163,7 @@ class AuctionQueryIntegrationTest {
         auction.setDurationMinutes(60L);
         auction.setNextBidSequence(1L);
         auction.setExtensionCount(0);
-        auction.setCreatedAt(Instant.now().truncatedTo(ChronoUnit.SECONDS));
+        auction.setCreatedAt(createdAt.truncatedTo(ChronoUnit.SECONDS));
         auction.setStartsAt(auction.getCreatedAt());
         auction.setEndsAt(endsAt);
         entityManager.persist(auction);
@@ -150,9 +176,13 @@ class AuctionQueryIntegrationTest {
         bid.setBidder(bidder);
         bid.setAmount(new BigDecimal(amount));
         bid.setSequenceNumber(sequenceNumber);
-        bid.setSubmittedAt(Instant.now());
+        bid.setSubmittedAt(baseInstant().plus(30, ChronoUnit.MINUTES));
         entityManager.persist(bid);
         entityManager.flush();
         return bid;
+    }
+
+    private Instant baseInstant() {
+        return Instant.parse("2026-05-22T08:00:00Z");
     }
 }

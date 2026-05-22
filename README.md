@@ -20,6 +20,14 @@ GET /api/auctions/{auctionId}/bids
 GET /actuator/health
 ```
 
+`GET /api/auctions` mendukung query parameter opsional:
+
+```txt
+status
+page (default 0)
+size (default 20, max 100)
+```
+
 ## Run Lokal
 
 Jalankan test:

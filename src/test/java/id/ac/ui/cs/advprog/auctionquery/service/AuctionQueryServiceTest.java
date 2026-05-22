@@ -1,25 +1,14 @@
 package id.ac.ui.cs.advprog.auctionquery.service;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import static org.mockito.Mockito.when;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import id.ac.ui.cs.advprog.auctionquery.dto.AuctionDetailResponse;
+import id.ac.ui.cs.advprog.auctionquery.dto.AuctionSummaryResponse;
 import id.ac.ui.cs.advprog.auctionquery.dto.BidResponse;
+import id.ac.ui.cs.advprog.auctionquery.mapper.AuctionResponseMapper;
 import id.ac.ui.cs.advprog.auctionquery.model.Auction;
 import id.ac.ui.cs.advprog.auctionquery.model.AuctionStatus;
 import id.ac.ui.cs.advprog.auctionquery.model.Bid;
@@ -27,99 +16,182 @@ import id.ac.ui.cs.advprog.auctionquery.model.Listing;
 import id.ac.ui.cs.advprog.auctionquery.model.User;
 import id.ac.ui.cs.advprog.auctionquery.repository.AuctionRepository;
 import id.ac.ui.cs.advprog.auctionquery.repository.BidRepository;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 class AuctionQueryServiceTest {
 
+    private static final Instant CREATED_AT = Instant.parse("2026-05-22T08:00:00Z");
+    private static final Instant ENDS_AT = Instant.parse("2026-05-22T09:00:00Z");
+    private static final Instant SUBMITTED_AT = Instant.parse("2026-05-22T08:30:00Z");
+
     private AuctionRepository auctionRepository;
     private BidRepository bidRepository;
+    private BidCalculator bidCalculator;
+    private AuctionStatusResolver auctionStatusResolver;
+    private AuctionResponseMapper auctionResponseMapper;
     private AuctionQueryService service;
 
     @BeforeEach
     void setUp() {
         auctionRepository = Mockito.mock(AuctionRepository.class);
         bidRepository = Mockito.mock(BidRepository.class);
-        service = new AuctionQueryService(auctionRepository, bidRepository);
+        bidCalculator = Mockito.mock(BidCalculator.class);
+        auctionStatusResolver = Mockito.mock(AuctionStatusResolver.class);
+        auctionResponseMapper = Mockito.mock(AuctionResponseMapper.class);
+        service = new AuctionQueryService(
+            auctionRepository,
+            bidRepository,
+            bidCalculator,
+            auctionStatusResolver,
+            auctionResponseMapper
+        );
     }
 
     @Test
-void getBidHistoryShouldNotMarkLeadingBidAsWinningWhenAuctionIsStillActive() {
-    Auction auction = createAuction(
-        AuctionStatus.ACTIVE,
-        Instant.now().minusSeconds(3600),
-        new BigDecimal("100.00")
-    );
+    void listAuctionsShouldLoadRequestedPageAndMapSummaryResponses() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+        Bid leadingBid = createBid(auction, "120.00", 1L, "buyer@example.com");
+        AuctionSummaryResponse response = new AuctionSummaryResponse(
+            auction.getId(),
+            auction.getListing().getId(),
+            auction.getListing().getTitle(),
+            auction.getListing().getDescription(),
+            auction.getListing().getSeller().getId(),
+            auction.getListing().getSeller().getEmail(),
+            new BigDecimal("120.00"),
+            auction.getStartingPrice(),
+            auction.getMinimumBidIncrement(),
+            AuctionStatus.ACTIVE,
+            CREATED_AT,
+            CREATED_AT,
+            ENDS_AT,
+            0,
+            3,
+            new BigDecimal("130.00")
+        );
+        Pageable pageable = PageRequest.of(0, 20);
 
-    Bid lowerBid = createBid(auction, new BigDecimal("90.00"), 1L);
-    Bid leadingBid = createBid(auction, new BigDecimal("120.00"), 2L);
+        when(auctionRepository.findByStatusOrderByCreatedAtDesc(AuctionStatus.ACTIVE, pageable))
+            .thenReturn(new PageImpl<>(List.of(auction)));
+        when(bidRepository.findTopByAuctionIdOrderByAmountDescSequenceNumberAsc(auction.getId()))
+            .thenReturn(Optional.of(leadingBid));
+        when(bidRepository.countByAuctionId(auction.getId())).thenReturn(3L);
+        when(auctionStatusResolver.resolveEffectiveStatus(auction)).thenReturn(AuctionStatus.ACTIVE);
+        when(bidCalculator.calculateNextMinimumBid(auction, leadingBid)).thenReturn(new BigDecimal("130.00"));
+        when(auctionResponseMapper.toSummaryResponse(
+            auction,
+            AuctionStatus.ACTIVE,
+            leadingBid,
+            3L,
+            new BigDecimal("130.00")
+        )).thenReturn(response);
 
-    when(auctionRepository.findByIdWithListingAndSeller(auction.getId()))
-        .thenReturn(Optional.of(auction));
-    when(bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId()))
-        .thenReturn(List.of(lowerBid, leadingBid));
+        List<AuctionSummaryResponse> results = service.listAuctions(AuctionStatus.ACTIVE, pageable);
 
-    List<BidResponse> responses = service.getBidHistory(auction.getId());
-
-    assertEquals(2, responses.size());
-    assertFalse(responses.get(0).winning());
-    assertFalse(responses.get(1).winning());
-}
+        assertEquals(List.of(response), results);
+    }
 
     @Test
-void getAuctionDetailShouldKeepActiveStatusWhenAuctionExpiredAndReserveNotMet() {
-    Auction auction = createAuction(
-        AuctionStatus.ACTIVE,
-        Instant.now().minusSeconds(3600),
-        new BigDecimal("100.00")
-    );
+    void getAuctionDetailShouldAssembleMappedDetailResponse() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+        Bid leadingBid = createBid(auction, "80.00", 1L, "buyer@example.com");
+        List<Bid> bids = List.of(leadingBid);
+        AuctionDetailResponse response = new AuctionDetailResponse(
+            auction.getId(),
+            auction.getListing().getId(),
+            auction.getListing().getTitle(),
+            auction.getListing().getDescription(),
+            auction.getListing().getSeller().getId(),
+            auction.getListing().getSeller().getEmail(),
+            new BigDecimal("80.00"),
+            auction.getStartingPrice(),
+            auction.getReservePrice(),
+            auction.getMinimumBidIncrement(),
+            AuctionStatus.ACTIVE,
+            CREATED_AT,
+            CREATED_AT,
+            ENDS_AT,
+            null,
+            auction.getDurationMinutes(),
+            auction.getExtensionCount(),
+            1,
+            new BigDecimal("90.00"),
+            false,
+            true,
+            null,
+            null,
+            List.of()
+        );
 
-    Bid bid = createBid(auction, new BigDecimal("80.00"), 1L);
+        when(auctionRepository.findByIdWithListingAndSeller(auction.getId())).thenReturn(Optional.of(auction));
+        when(bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId())).thenReturn(bids);
+        when(bidCalculator.selectLeadingBid(bids)).thenReturn(leadingBid);
+        when(auctionStatusResolver.resolveEffectiveStatus(auction)).thenReturn(AuctionStatus.ACTIVE);
+        when(auctionStatusResolver.resolveEffectiveClosedAt(auction, AuctionStatus.ACTIVE)).thenReturn(null);
+        when(bidCalculator.calculateNextMinimumBid(auction, leadingBid)).thenReturn(new BigDecimal("90.00"));
+        when(auctionStatusResolver.isReserveMet(auction, leadingBid)).thenReturn(false);
+        when(auctionStatusResolver.isBiddableStatus(AuctionStatus.ACTIVE)).thenReturn(true);
+        when(auctionResponseMapper.toDetailResponse(
+            auction,
+            AuctionStatus.ACTIVE,
+            null,
+            bids,
+            leadingBid,
+            new BigDecimal("90.00"),
+            false,
+            true
+        )).thenReturn(response);
 
-    when(auctionRepository.findByIdWithListingAndSeller(auction.getId()))
-        .thenReturn(Optional.of(auction));
-    when(bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId()))
-        .thenReturn(List.of(bid));
+        AuctionDetailResponse result = service.getAuctionDetail(auction.getId());
 
-    AuctionDetailResponse response = service.getAuctionDetail(auction.getId());
+        assertSame(response, result);
+    }
 
-    assertEquals(AuctionStatus.ACTIVE, response.status());
-    assertFalse(response.reserveMet());
-    assertTrue(response.biddable());
-    assertEquals(1, response.totalBids());
-    assertEquals(new BigDecimal("90.00"), response.nextMinimumBid());
-}
+    @Test
+    void getBidHistoryShouldDelegateBidResponseMapping() {
+        Auction auction = createAuction(AuctionStatus.WON);
+        Bid winningBid = createBid(auction, "120.00", 1L, "winner@example.com");
+        List<Bid> bids = List.of(winningBid);
+        List<BidResponse> responses = List.of(new BidResponse(
+            winningBid.getId(),
+            winningBid.getBidder().getId(),
+            "w****r@example.com",
+            winningBid.getAmount(),
+            winningBid.getSequenceNumber(),
+            winningBid.getSubmittedAt(),
+            true
+        ));
 
-@Test
-void getAuctionDetailShouldKeepActiveStatusWhenAuctionExpiredAndReserveMet() {
-    Auction auction = createAuction(
-        AuctionStatus.ACTIVE,
-        Instant.now().minusSeconds(3600),
-        new BigDecimal("100.00")
-    );
+        when(auctionRepository.findByIdWithListingAndSeller(auction.getId())).thenReturn(Optional.of(auction));
+        when(bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId())).thenReturn(bids);
+        when(bidCalculator.selectLeadingBid(bids)).thenReturn(winningBid);
+        when(auctionStatusResolver.resolveEffectiveStatus(auction)).thenReturn(AuctionStatus.WON);
+        when(auctionStatusResolver.resolveEffectiveClosedAt(auction, AuctionStatus.WON))
+            .thenReturn(Instant.parse("2026-05-22T09:05:00Z"));
+        when(auctionResponseMapper.toBidResponses(AuctionStatus.WON, bids, winningBid)).thenReturn(responses);
 
-    Bid bid = createBid(auction, new BigDecimal("120.00"), 1L);
+        List<BidResponse> result = service.getBidHistory(auction.getId());
 
-    when(auctionRepository.findByIdWithListingAndSeller(auction.getId()))
-        .thenReturn(Optional.of(auction));
-    when(bidRepository.findByAuctionIdOrderBySequenceNumberAsc(auction.getId()))
-        .thenReturn(List.of(bid));
-
-    AuctionDetailResponse response = service.getAuctionDetail(auction.getId());
-
-    assertEquals(AuctionStatus.ACTIVE, response.status());
-    assertTrue(response.reserveMet());
-    assertTrue(response.biddable());
-    assertEquals(bid.getId(), response.leadingBid().id());
-
-    // Saat status masih ACTIVE, kemungkinan winningBid belum diset.
-    assertNull(response.winningBid());
-}
+        assertSame(responses, result);
+    }
 
     @Test
     void getAuctionDetailShouldThrowNotFoundWhenAuctionDoesNotExist() {
         UUID auctionId = UUID.randomUUID();
 
-        when(auctionRepository.findByIdWithListingAndSeller(auctionId))
-            .thenReturn(Optional.empty());
+        when(auctionRepository.findByIdWithListingAndSeller(auctionId)).thenReturn(Optional.empty());
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
@@ -127,13 +199,10 @@ void getAuctionDetailShouldKeepActiveStatusWhenAuctionExpiredAndReserveMet() {
         );
 
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("Auction not found", exception.getReason());
     }
 
-    private Auction createAuction(
-        AuctionStatus status,
-        Instant endsAt,
-        BigDecimal reservePrice
-    ) {
+    private Auction createAuction(AuctionStatus status) {
         User seller = new User();
         seller.setId(UUID.randomUUID());
         seller.setEmail("seller@example.com");
@@ -150,31 +219,29 @@ void getAuctionDetailShouldKeepActiveStatusWhenAuctionExpiredAndReserveMet() {
         auction.setListing(listing);
         auction.setStatus(status);
         auction.setStartingPrice(new BigDecimal("50.00"));
-        auction.setReservePrice(reservePrice);
+        auction.setReservePrice(new BigDecimal("100.00"));
         auction.setMinimumBidIncrement(new BigDecimal("10.00"));
         auction.setDurationMinutes(60L);
         auction.setNextBidSequence(1L);
         auction.setExtensionCount(0);
-        auction.setCreatedAt(Instant.now().minusSeconds(7200));
-        auction.setStartsAt(Instant.now().minusSeconds(7200));
-        auction.setEndsAt(endsAt);
-
+        auction.setCreatedAt(CREATED_AT);
+        auction.setStartsAt(CREATED_AT);
+        auction.setEndsAt(ENDS_AT);
         return auction;
     }
 
-    private Bid createBid(Auction auction, BigDecimal amount, long sequenceNumber) {
+    private Bid createBid(Auction auction, String amount, long sequenceNumber, String bidderEmail) {
         User bidder = new User();
         bidder.setId(UUID.randomUUID());
-        bidder.setEmail("bidder" + sequenceNumber + "@example.com");
+        bidder.setEmail(bidderEmail);
 
         Bid bid = new Bid();
         bid.setId(UUID.randomUUID());
         bid.setAuction(auction);
         bid.setBidder(bidder);
-        bid.setAmount(amount);
+        bid.setAmount(new BigDecimal(amount));
         bid.setSequenceNumber(sequenceNumber);
-        bid.setSubmittedAt(Instant.now().minusSeconds(1800));
-
+        bid.setSubmittedAt(SUBMITTED_AT);
         return bid;
     }
 }

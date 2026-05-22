@@ -5,15 +5,20 @@ import id.ac.ui.cs.advprog.auctionquery.dto.AuctionSummaryResponse;
 import id.ac.ui.cs.advprog.auctionquery.dto.BidResponse;
 import id.ac.ui.cs.advprog.auctionquery.model.AuctionStatus;
 import id.ac.ui.cs.advprog.auctionquery.service.AuctionQueryService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 @RestController
+@Validated
 @RequestMapping("/api/auctions")
 public class AuctionQueryController {
 
@@ -24,8 +29,12 @@ public class AuctionQueryController {
     }
 
     @GetMapping
-    public List<AuctionSummaryResponse> listAuctions(@RequestParam(required = false) AuctionStatus status) {
-        return auctionQueryService.listAuctions(status);
+    public List<AuctionSummaryResponse> listAuctions(
+        @RequestParam(required = false) AuctionStatus status,
+        @RequestParam(defaultValue = "0") @Min(0) int page,
+        @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
+        return auctionQueryService.listAuctions(status, PageRequest.of(page, size));
     }
 
     @GetMapping("/{auctionId}")
