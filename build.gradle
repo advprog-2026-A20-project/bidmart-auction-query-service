@@ -15,6 +15,10 @@ java {
         languageVersion = JavaLanguageVersion.of(21)
     }
 }
+tasks.named('bootJar') {
+    archiveFileName = 'app.jar'
+}
+
 
 jacoco {
     toolVersion = '0.8.12'
