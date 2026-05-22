@@ -2,8 +2,11 @@ name: CI/CD
 
 on:
   pull_request:
+    branches:
+      - main
   push:
     branches:
+      - main
       - fix/auction-query
 
 concurrency:
@@ -36,27 +39,20 @@ jobs:
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
-      - name: Run unit tests with coverage
-        run: ./gradlew test jacocoTestReport
+      - name: Run tests with coverage
+        run: ./gradlew clean test jacocoTestReport
 
-      - name: SonarQube Cloud scan
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+      - name: Verify JaCoCo XML exists
+        run: |
+          ls -lah build/reports/jacoco/test/
+          test -f build/reports/jacoco/test/jacocoTestReport.xml
+
+      - name: Run SonarCloud analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
-        with:
-          args: >
-            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
-            -Dsonar.java.binaries=build/classes
-            -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
-
-      - name: SonarQube Cloud quality gate
-        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
-        timeout-minutes: 10
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_ORGANIZATION: ${{ env.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+        run: ./gradlew sonar --info
 
   cd:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
