@@ -12,6 +12,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class AuctionStatusResolverTest {
 
@@ -23,7 +25,7 @@ class AuctionStatusResolverTest {
     }
 
     @Test
-    void resolveEffectiveStatusShouldKeepActiveAuctionActiveBeforeEndTime() {
+    void resolveEffectiveStatusShouldPreserveActiveStatus() {
         Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T09:00:00Z"));
 
         AuctionStatus result = auctionStatusResolver.resolveEffectiveStatus(auction);
@@ -31,22 +33,14 @@ class AuctionStatusResolverTest {
         assertEquals(AuctionStatus.ACTIVE, result);
     }
 
-    @Test
-    void resolveEffectiveStatusShouldPreserveStoredStatusForExpiredActiveAuctions() {
-        Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T07:00:00Z"));
+    @ParameterizedTest
+    @EnumSource(AuctionStatus.class)
+    void resolveEffectiveStatusShouldPreserveEveryAuctionStatus(AuctionStatus status) {
+        Auction auction = createAuction(status, Instant.parse("2026-05-22T09:00:00Z"));
 
         AuctionStatus result = auctionStatusResolver.resolveEffectiveStatus(auction);
 
-        assertEquals(AuctionStatus.ACTIVE, result);
-    }
-
-    @Test
-    void resolveEffectiveStatusShouldNotOverwriteFinalStatuses() {
-        Auction auction = createAuction(AuctionStatus.WON, Instant.parse("2026-05-22T07:00:00Z"));
-
-        AuctionStatus result = auctionStatusResolver.resolveEffectiveStatus(auction);
-
-        assertEquals(AuctionStatus.WON, result);
+        assertEquals(status, result);
     }
 
     @Test
@@ -69,6 +63,16 @@ class AuctionStatusResolverTest {
     }
 
     @Test
+    void resolveEffectiveClosedAtShouldReturnNullWhenClosedAtNull() {
+        Auction auction = createAuction(AuctionStatus.CLOSED, Instant.parse("2026-05-22T09:00:00Z"));
+        auction.setClosedAt(null);
+
+        Instant result = auctionStatusResolver.resolveEffectiveClosedAt(auction, AuctionStatus.CLOSED);
+
+        assertNull(result);
+    }
+
+    @Test
     void isReserveMetShouldReturnFalseWhenNoLeadingBidExists() {
         Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T09:00:00Z"));
 
@@ -76,7 +80,25 @@ class AuctionStatusResolverTest {
     }
 
     @Test
-    void isReserveMetShouldReturnTrueWhenLeadingBidMeetsReservePrice() {
+    void isReserveMetShouldReturnFalseWhenBidIsBelowReserve() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T09:00:00Z"));
+        Bid leadingBid = new Bid();
+        leadingBid.setAmount(new BigDecimal("99.99"));
+
+        assertFalse(auctionStatusResolver.isReserveMet(auction, leadingBid));
+    }
+
+    @Test
+    void isReserveMetShouldReturnTrueWhenBidEqualsReserve() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T09:00:00Z"));
+        Bid leadingBid = new Bid();
+        leadingBid.setAmount(new BigDecimal("100.00"));
+
+        assertTrue(auctionStatusResolver.isReserveMet(auction, leadingBid));
+    }
+
+    @Test
+    void isReserveMetShouldReturnTrueWhenLeadingBidExceedsReservePrice() {
         Auction auction = createAuction(AuctionStatus.ACTIVE, Instant.parse("2026-05-22T09:00:00Z"));
         Bid leadingBid = new Bid();
         leadingBid.setAmount(new BigDecimal("120.00"));
@@ -88,7 +110,12 @@ class AuctionStatusResolverTest {
     void isBiddableStatusShouldOnlyAllowActiveAndExtendedStatuses() {
         assertTrue(auctionStatusResolver.isBiddableStatus(AuctionStatus.ACTIVE));
         assertTrue(auctionStatusResolver.isBiddableStatus(AuctionStatus.EXTENDED));
-        assertFalse(auctionStatusResolver.isBiddableStatus(AuctionStatus.WON));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AuctionStatus.class, names = {"DRAFT", "CLOSED", "WON", "UNSOLD", "CANCELLED"})
+    void isBiddableStatusShouldReturnFalseForNonBiddableStatuses(AuctionStatus status) {
+        assertFalse(auctionStatusResolver.isBiddableStatus(status));
     }
 
     private Auction createAuction(AuctionStatus status, Instant endsAt) {

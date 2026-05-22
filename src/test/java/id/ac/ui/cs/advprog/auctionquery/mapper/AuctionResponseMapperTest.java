@@ -18,14 +18,24 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class AuctionResponseMapperTest {
 
     private static final Instant CREATED_AT = Instant.parse("2026-05-22T08:00:00Z");
     private static final Instant ENDS_AT = Instant.parse("2026-05-22T09:00:00Z");
     private static final Instant SUBMITTED_AT = Instant.parse("2026-05-22T08:30:00Z");
+    private static final BigDecimal LISTING_PRICE = new BigDecimal("50.00");
+    private static final BigDecimal RESERVE_PRICE = new BigDecimal("100.00");
+    private static final BigDecimal MINIMUM_INCREMENT = new BigDecimal("10.00");
+    private static final BigDecimal NEXT_MINIMUM_BID = new BigDecimal("130.00");
+    private static final String SELLER_EMAIL = "seller@example.com";
+    private static final String LONG_EMAIL = "bidder@example.com";
 
     private AuctionResponseMapper auctionResponseMapper;
 
@@ -37,26 +47,43 @@ class AuctionResponseMapperTest {
     @Test
     void toSummaryResponseShouldMapAuctionSummaryFields() {
         Auction auction = createAuction(AuctionStatus.ACTIVE);
-        Bid leadingBid = createBid(auction, "120.00", 1L, "bidder@example.com");
+        Bid leadingBid = createBid(auction, "120.00", 1L, LONG_EMAIL);
 
         AuctionSummaryResponse response = auctionResponseMapper.toSummaryResponse(
             auction,
             AuctionStatus.ACTIVE,
             leadingBid,
             2L,
-            new BigDecimal("130.00")
+            NEXT_MINIMUM_BID
         );
 
         assertEquals(auction.getId(), response.id());
         assertEquals(auction.getListing().getSeller().getEmail(), response.sellerEmail());
         assertEquals(new BigDecimal("120.00"), response.currentPrice());
-        assertEquals(new BigDecimal("130.00"), response.nextMinimumBid());
+        assertEquals(NEXT_MINIMUM_BID, response.nextMinimumBid());
+    }
+
+    @Test
+    void toSummaryResponseShouldUseListingPriceWhenLeadingBidDoesNotExist() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+
+        AuctionSummaryResponse response = auctionResponseMapper.toSummaryResponse(
+            auction,
+            AuctionStatus.ACTIVE,
+            null,
+            3L,
+            NEXT_MINIMUM_BID
+        );
+
+        assertEquals(LISTING_PRICE, response.currentPrice());
+        assertEquals(NEXT_MINIMUM_BID, response.nextMinimumBid());
+        assertEquals(3L, response.totalBids());
     }
 
     @Test
     void toDetailResponseShouldMapLeadingBidAndMaskBidderEmail() {
         Auction auction = createAuction(AuctionStatus.ACTIVE);
-        Bid leadingBid = createBid(auction, "120.00", 1L, "bidder@example.com");
+        Bid leadingBid = createBid(auction, "120.00", 1L, LONG_EMAIL);
 
         AuctionDetailResponse response = auctionResponseMapper.toDetailResponse(
             auction,
@@ -64,7 +91,7 @@ class AuctionResponseMapperTest {
             null,
             List.of(leadingBid),
             leadingBid,
-            new BigDecimal("130.00"),
+            NEXT_MINIMUM_BID,
             true,
             true
         );
@@ -74,6 +101,28 @@ class AuctionResponseMapperTest {
         assertNull(response.winningBid());
         assertTrue(response.reserveMet());
         assertTrue(response.biddable());
+    }
+
+    @Test
+    void toDetailResponseShouldUseListingPriceAndNullLeadingBidWhenNoBidsExist() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+
+        AuctionDetailResponse response = auctionResponseMapper.toDetailResponse(
+            auction,
+            AuctionStatus.ACTIVE,
+            null,
+            List.of(),
+            null,
+            NEXT_MINIMUM_BID,
+            false,
+            true
+        );
+
+        assertEquals(LISTING_PRICE, response.currentPrice());
+        assertNull(response.leadingBid());
+        assertNull(response.winningBid());
+        assertTrue(response.bidHistory().isEmpty());
+        assertEquals(0, response.totalBids());
     }
 
     @Test
@@ -108,25 +157,79 @@ class AuctionResponseMapperTest {
         assertEquals("w****r@example.com", response.bidderEmail());
     }
 
+    @Test
+    void toBidResponseShouldReturnFalseWhenAuctionStatusIsNotWon() {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+        Bid leadingBid = createBid(auction, "150.00", 1L, "winner@example.com");
+
+        BidResponse response = auctionResponseMapper.toBidResponse(AuctionStatus.ACTIVE, leadingBid, leadingBid);
+
+        assertFalse(response.winning());
+    }
+
+    @Test
+    void toBidResponseShouldReturnFalseWhenLeadingBidIsNull() {
+        Auction auction = createAuction(AuctionStatus.WON);
+        Bid bid = createBid(auction, "150.00", 1L, "winner@example.com");
+
+        BidResponse response = auctionResponseMapper.toBidResponse(AuctionStatus.WON, bid, null);
+
+        assertFalse(response.winning());
+    }
+
+    @Test
+    void toBidResponseShouldReturnFalseWhenBidIsNotLeadingBid() {
+        Auction auction = createAuction(AuctionStatus.WON);
+        Bid leadingBid = createBid(auction, "160.00", 1L, "winner@example.com");
+        Bid otherBid = createBid(auction, "150.00", 2L, "other@example.com");
+
+        BidResponse response = auctionResponseMapper.toBidResponse(AuctionStatus.WON, otherBid, leadingBid);
+
+        assertFalse(response.winning());
+    }
+
+    @ParameterizedTest(name = "email \"{0}\" should mask to \"{1}\"")
+    @MethodSource("emailMaskingCases")
+    void toBidResponseShouldMaskBidderEmail(String email, String expectedMaskedEmail) {
+        Auction auction = createAuction(AuctionStatus.ACTIVE);
+        Bid bid = createBid(auction, "120.00", 1L, email);
+
+        BidResponse response = auctionResponseMapper.toBidResponse(AuctionStatus.ACTIVE, bid, null);
+
+        assertEquals(expectedMaskedEmail, response.bidderEmail());
+    }
+
+    private static Stream<Arguments> emailMaskingCases() {
+        return Stream.of(
+            Arguments.of(null, null),
+            Arguments.of("   ", "   "),
+            Arguments.of("invalid-email", "***"),
+            Arguments.of("invalid@", "***"),
+            Arguments.of("a@example.com", "*@example.com"),
+            Arguments.of("ab@example.com", "a*@example.com"),
+            Arguments.of(LONG_EMAIL, "b****r@example.com")
+        );
+    }
+
     private Auction createAuction(AuctionStatus status) {
         User seller = new User();
         seller.setId(UUID.randomUUID());
-        seller.setEmail("seller@example.com");
+        seller.setEmail(SELLER_EMAIL);
 
         Listing listing = new Listing();
         listing.setId(UUID.randomUUID());
         listing.setTitle("Test Listing");
         listing.setDescription("Test Description");
-        listing.setPrice(new BigDecimal("50.00"));
+        listing.setPrice(LISTING_PRICE);
         listing.setSeller(seller);
 
         Auction auction = new Auction();
         auction.setId(UUID.randomUUID());
         auction.setListing(listing);
         auction.setStatus(status);
-        auction.setStartingPrice(new BigDecimal("50.00"));
-        auction.setReservePrice(new BigDecimal("100.00"));
-        auction.setMinimumBidIncrement(new BigDecimal("10.00"));
+        auction.setStartingPrice(LISTING_PRICE);
+        auction.setReservePrice(RESERVE_PRICE);
+        auction.setMinimumBidIncrement(MINIMUM_INCREMENT);
         auction.setDurationMinutes(60L);
         auction.setNextBidSequence(1L);
         auction.setExtensionCount(0);

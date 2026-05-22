@@ -47,6 +47,25 @@ class BidCalculatorTest {
     }
 
     @Test
+    void selectLeadingBidShouldHandleSingleBid() {
+        Bid bid = createBid("90.00", 1L);
+
+        Bid result = bidCalculator.selectLeadingBid(List.of(bid));
+
+        assertEquals(bid.getId(), result.getId());
+    }
+
+    @Test
+    void selectLeadingBidShouldPreferHighestAmountEvenIfSequenceNumberIsHigher() {
+        Bid earlierLowerBid = createBid("100.00", 1L);
+        Bid laterHigherBid = createBid("110.00", 2L);
+
+        Bid result = bidCalculator.selectLeadingBid(List.of(earlierLowerBid, laterHigherBid));
+
+        assertEquals(laterHigherBid.getId(), result.getId());
+    }
+
+    @Test
     void calculateNextMinimumBidShouldUseStartingPriceWhenNoLeadingBidExists() {
         Auction auction = createAuction();
 
@@ -63,6 +82,18 @@ class BidCalculatorTest {
         BigDecimal result = bidCalculator.calculateNextMinimumBid(auction, leadingBid);
 
         assertEquals(new BigDecimal("130.00"), result);
+    }
+
+    @Test
+    void calculateNextMinimumBidShouldPreserveBigDecimalScaleIfApplicable() {
+        Auction auction = new Auction();
+        auction.setStartingPrice(new BigDecimal("50.00"));
+        auction.setMinimumBidIncrement(new BigDecimal("0.05"));
+        Bid leadingBid = createBid("100.10", 1L);
+
+        BigDecimal result = bidCalculator.calculateNextMinimumBid(auction, leadingBid);
+
+        assertEquals(new BigDecimal("100.15"), result);
     }
 
     private Auction createAuction() {

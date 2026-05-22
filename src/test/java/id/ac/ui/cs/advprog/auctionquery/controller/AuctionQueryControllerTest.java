@@ -1,8 +1,10 @@
 package id.ac.ui.cs.advprog.auctionquery.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -80,6 +82,11 @@ class AuctionQueryControllerTest {
                 .param("page", "1")
                 .param("size", "5"))
             .andExpect(status().isOk());
+
+        verify(auctionQueryService).listAuctions(
+            eq(AuctionStatus.CLOSED),
+            argThat(pageable -> pageable.getPageNumber() == 1 && pageable.getPageSize() == 5)
+        );
     }
 
     @Test
@@ -94,6 +101,33 @@ class AuctionQueryControllerTest {
         mockMvc.perform(get("/api/auctions").param("size", "101"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.message").value("must be less than or equal to 100"));
+    }
+
+    @Test
+    void listAuctionsShouldRejectZeroPageSize() throws Exception {
+        mockMvc.perform(get("/api/auctions").param("size", "0"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("must be greater than or equal to 1"));
+    }
+
+    @Test
+    void listAuctionsShouldAcceptMaximumPageSize() throws Exception {
+        when(auctionQueryService.listAuctions(eq(null), any(Pageable.class))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/auctions").param("size", "100"))
+            .andExpect(status().isOk());
+
+        verify(auctionQueryService).listAuctions(
+            eq(null),
+            argThat(pageable -> pageable.getPageNumber() == 0 && pageable.getPageSize() == 100)
+        );
+    }
+
+    @Test
+    void listAuctionsShouldRejectInvalidStatus() throws Exception {
+        mockMvc.perform(get("/api/auctions").param("status", "INVALID"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message", containsString("Failed to convert")));
     }
 
     @Test
@@ -167,6 +201,13 @@ class AuctionQueryControllerTest {
     }
 
     @Test
+    void getAuctionDetailShouldRejectInvalidUuid() throws Exception {
+        mockMvc.perform(get("/api/auctions/not-a-uuid"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message", containsString("Failed to convert")));
+    }
+
+    @Test
     void getAuctionDetailShouldReturnNotFoundWhenServiceThrowsNotFound() throws Exception {
         UUID auctionId = UUID.randomUUID();
 
@@ -174,6 +215,17 @@ class AuctionQueryControllerTest {
             .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found"));
 
         mockMvc.perform(get("/api/auctions/{auctionId}", auctionId))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void getBidHistoryShouldReturnNotFoundWhenServiceThrowsNotFound() throws Exception {
+        UUID auctionId = UUID.randomUUID();
+
+        when(auctionQueryService.getBidHistory(auctionId))
+            .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Auction not found"));
+
+        mockMvc.perform(get("/api/auctions/{auctionId}/bids", auctionId))
             .andExpect(status().isNotFound());
     }
 }
